@@ -1,38 +1,108 @@
 import React, { Component } from 'react';
-import { StyleSheet, View } from 'react-native';
-import { AccessToken, GraphRequest, GraphRequestManager, LoginButton } from 'react-native-fbsdk';
+import {
+  ActivityIndicator,
+  Text,
+  View
+} from 'react-native';
+
+import {
+  AccessToken,
+} from 'react-native-fbsdk';
+
+import { getFeed } from './utils/graphMethods';
+import { getAsyncStorage, setAsyncStorage } from './utils/storageMethods';
+import FeedList from './components/FeedList';
+import LoginPage from './components/LoginPage';
+
+import styles from './styles';
 
 export default class App extends Component {
+  constructor (props) {
+    super (props);
+
+    this.state = {
+      activityIndicatorSpinning: true,
+      feed: undefined,
+      refreshControlSpinning: false
+    }
+  }
+
+  componentWillMount () {
+    this._checkLoginStatus();
+  }
+
   render() {
     return (
       <View style={ styles.container }>
-        <LoginButton
-            readPermissions={["public_profile", "user_photos", "user_posts", "user_events", "user_likes"]}
-            onLoginFinished={
-                async (error, result) => {
-                if (error) {
-                } else if (result.isCancelled) {
-                    alert("login is cancelled.");
-                } else {
-                    const data = await AccessToken.getCurrentAccessToken()
-                    alert(data);
-                }
-                }
-            }
-            onLogoutFinished={() => alert("logout.")}
-        />
+        { this._renderView() }
       </View>
     );
   }
 
-  _getFeed () {}
-}
+  async _checkLoginStatus () {
+    const result = await AccessToken.getCurrentAccessToken();
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F5FCFF',
+    if (result === null) {
+      this.props.navigation.navigate('LoginPage', { getFeed: () => getFeed() });
+      return;
+    }
+
+     const feed = await getAsyncStorage('feed');
+
+    if (feed && feed.length > 0) {
+      this.setState({
+        feed,
+        activityIndicatorSpinning: false
+      });
+      return;
+    }
+
+    this._getFeed();
   }
-});
+
+  _getFeed () {
+    getFeed((error, result) => this._responseInfoCallback(error, result));
+  }
+
+  _renderView () {
+    if (this.state.activityIndicatorSpinning) {
+      return (
+        <ActivityIndicator
+          animating={ this.state.activityIndicatorSpinning }
+          size={ 'large' }
+        />
+      );
+    }
+
+    return (
+      <FeedList
+        feed={ this.state.feed }
+        navigation={ this.props.navigation }
+        refreshControlSpinning={ this.state.refreshControlSpinning }
+        refreshFeedList={ () => this._refreshFeedList() }
+      />
+    );
+  }
+
+  _refreshFeedList () {
+    this.setState({
+      refreshControlSpinning: true
+    });
+
+    this._getFeed();
+  }
+
+  _responseInfoCallback (error, result) {
+    if (error) {
+      console.log('Error fetching data: ', error.toString());
+      return;
+    }
+
+    setAsyncStorage('feed', result.data);
+    this.setState({
+      activityIndicatorSpinning: false,
+      feed: result.data,
+      refreshControlSpinning: false
+    });
+  }
+}
